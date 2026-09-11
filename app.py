@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 
 # ─────────────────────────────────────────────────────────────
@@ -10,138 +11,163 @@ KATILIMCILAR = [
 
 # ─────────────────────────────────────────────────────────────
 # 2) BİLGİLER — "bu kim?" soruları
-#    "dogru": bilginin sahibi. Bilerek gizli tutmak istersen None bırak,
-#    o zaman sadece çoğunluğun tahmini gösterilir.
 # ─────────────────────────────────────────────────────────────
 BILGILER = [
-    {"bilgi": "Üniversitede okuduğu bölümle hiç alakasız bir işte çalışıyor", "dogru": None},
-    {"bilgi": "İlk işi bir çağrı merkezindeydi", "dogru": None},
-    {"bilgi": "Çocukken pilot olmak istiyordu", "dogru": None},
-    {"bilgi": "Evde üçten fazla hayvanı var", "dogru": None},
-    {"bilgi": "Hiç yurt dışına çıkmadı", "dogru": None},
-    {"bilgi": "Bir enstrüman çalabiliyor", "dogru": None},
-    {"bilgi": "Ehliyeti var ama hiç araba kullanmıyor", "dogru": None},
-    {"bilgi": "Sabah 6'dan önce kalkıyor", "dogru": None},
-    {"bilgi": "Aynı diziyi beşten fazla kez baştan izledi", "dogru": None},
+    "Üniversitede okuduğu bölümle hiç alakasız bir işte çalışıyor",
+    "İlk işi bir çağrı merkezindeydi",
+    "Çocukken pilot olmak istiyordu",
+    "Evde üçten fazla hayvanı var",
+    "Hiç yurt dışına çıkmadı",
+    "Bir enstrüman çalabiliyor",
+    "Ehliyeti var ama hiç araba kullanmıyor",
+    "Sabah 6'dan önce kalkıyor",
+    "Aynı diziyi beşten fazla kez baştan izledi",
 ]
 
-BASLIK = "Bu Kim?"
-ALT_BASLIK = "Her bilgi birimizle ilgili. Bakalım birbirimizi ne kadar tanıyoruz?"
+SURE = 15  # saniye
 
 # ─────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title=BASLIK, page_icon="🎀", layout="centered")
+st.set_page_config(page_title="Bu Kim?", page_icon="🎀", layout="centered")
 
 
 @st.cache_resource
-def ortak_veri():
-    """Tüm oyuncular arasında paylaşılan hafıza."""
-    return {"cevaplar": {}, "acilan": set()}
+def ortak():
+    return {
+        "aktif": None,        # aktif soru indeksi
+        "baslangic": None,    # soru başlama zamanı
+        "oylar": {},          # {soru_index: {isim: secim}}
+        "bitenler": set(),
+    }
 
 
-VERI = ortak_veri()
+V = ortak()
 
 st.markdown(
     """
     <style>
-    .baslik { font-size: 2rem; font-weight: 700; margin-bottom: 0; }
-    .altbaslik { color: #6b6b6b; margin-top: .2rem; }
-    .sonuc { font-size: 2.2rem; font-weight: 800; text-align: center;
-             padding: 1.1rem; border-radius: 16px; background: #ffeef4; }
+    .soru { font-size: 1.6rem; font-weight: 700; text-align: center;
+            padding: 1.4rem 1rem; border-radius: 16px; background: #fff3f8;
+            margin-bottom: 1rem; }
+    .sayac { font-size: 4rem; font-weight: 800; text-align: center; margin: .5rem 0; }
+    .kazanan { font-size: 2.6rem; font-weight: 800; text-align: center;
+               padding: 1.6rem; border-radius: 20px; background: #ffeef4; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+
+def kalan():
+    if V["baslangic"] is None:
+        return 0
+    return max(0, SURE - int(time.time() - V["baslangic"]))
+
+
 mod = st.sidebar.radio("Ekran", ["Oyuncu", "Sunum ekranı"])
 
 # ══════════════════════════════ OYUNCU ══════════════════════════════
 if mod == "Oyuncu":
-    st.markdown(f'<p class="baslik">🎀 {BASLIK}</p>', unsafe_allow_html=True)
-    st.markdown(f'<p class="altbaslik">{ALT_BASLIK}</p>', unsafe_allow_html=True)
+    st.markdown("### 🎀 Bu Kim?")
 
     isim = st.selectbox("Sen kimsin?", ["— seç —"] + KATILIMCILAR)
-
     if isim == "— seç —":
         st.info("Başlamak için ismini seç.")
         st.stop()
 
-    if isim in VERI["cevaplar"]:
-        st.success("Kartın kaydedildi. Sonuçlar sunum ekranında 🎉")
-        if st.button("Cevaplarımı değiştir"):
-            del VERI["cevaplar"][isim]
-            st.rerun()
-        st.stop()
+    @st.fragment(run_every="1s")
+    def oyuncu_ekrani():
+        i = V["aktif"]
+        if i is None:
+            st.info("⏳ Sunucunun soruyu başlatmasını bekle…")
+            return
 
-    secimler = []
-    for i, b in enumerate(BILGILER):
-        secim = st.radio(f"**{i+1}. {b['bilgi']}**", KATILIMCILAR, index=None,
-                         key=f"q{i}", horizontal=False)
-        secimler.append(secim)
-        st.divider()
+        k = kalan()
+        st.markdown(f'<div class="soru">{BILGILER[i]}</div>', unsafe_allow_html=True)
 
-    if st.button("Kartı gönder", type="primary", use_container_width=True):
-        if None in secimler:
-            st.warning("Tüm kutucukları doldurman gerekiyor.")
-        else:
-            VERI["cevaplar"][isim] = secimler
-            st.balloons()
-            st.rerun()
+        if k == 0:
+            st.warning("⏱️ Süre doldu! Sonuç ekranda.")
+            return
+
+        st.markdown(f'<div class="sayac">{k}</div>', unsafe_allow_html=True)
+        st.progress(k / SURE)
+
+        mevcut = V["oylar"].get(i, {}).get(isim)
+        if mevcut:
+            st.success(f"Cevabın: **{mevcut}** — değiştirmek için başka bir isme bas")
+
+        kolonlar = st.columns(2)
+        for n, ad in enumerate(KATILIMCILAR):
+            if kolonlar[n % 2].button(ad, key=f"o{i}_{ad}", use_container_width=True):
+                V["oylar"].setdefault(i, {})[isim] = ad
+                st.rerun(scope="fragment")
+
+    oyuncu_ekrani()
 
 # ══════════════════════════ SUNUM EKRANI ══════════════════════════
 else:
-    st.markdown('<p class="baslik">🎤 Sunum ekranı</p>', unsafe_allow_html=True)
-    st.caption(f"Kartını gönderen: {len(VERI['cevaplar'])} kişi")
+    st.markdown("### 🎤 Sunum ekranı")
 
-    if not VERI["cevaplar"]:
-        st.info("Henüz kimse kart göndermedi.")
-        st.stop()
+    secim = st.selectbox(
+        "Soru seç",
+        range(len(BILGILER)),
+        format_func=lambda x: f"{x+1}. {BILGILER[x]}",
+    )
 
-    st.write("**Oynayanlar:** " + ", ".join(VERI["cevaplar"].keys()))
+    c1, c2 = st.columns(2)
+    if c1.button("▶️ Soruyu başlat", type="primary", use_container_width=True):
+        V["aktif"] = secim
+        V["baslangic"] = time.time()
+        V["oylar"].pop(secim, None)
+        st.rerun()
+    if c2.button("🔄 Oyunu sıfırla", use_container_width=True):
+        V["aktif"] = None
+        V["baslangic"] = None
+        V["oylar"].clear()
+        st.rerun()
+
     st.divider()
 
-    for i, b in enumerate(BILGILER):
-        st.markdown(f"**{i+1}. {b['bilgi']}**")
+    @st.fragment(run_every="1s")
+    def sunum():
+        i = V["aktif"]
+        if i is None:
+            st.info("Bir soru seçip başlat.")
+            return
 
-        oylar = [c[i] for c in VERI["cevaplar"].values()]
-        sayim = {ad: oylar.count(ad) for ad in KATILIMCILAR if oylar.count(ad) > 0}
-        toplam = max(len(oylar), 1)
+        st.markdown(f'<div class="soru">{BILGILER[i]}</div>', unsafe_allow_html=True)
+        k = kalan()
+        oylar = list(V["oylar"].get(i, {}).values())
 
-        if i in VERI["acilan"]:
-            for ad, adet in sorted(sayim.items(), key=lambda x: -x[1]):
-                etiket = f"{ad} — {adet} oy"
-                if b["dogru"] and ad == b["dogru"]:
-                    etiket = f"✅ {etiket}  (doğru)"
-                st.progress(adet / toplam, text=etiket)
+        if k > 0:
+            st.markdown(f'<div class="sayac">{k}</div>', unsafe_allow_html=True)
+            st.progress(k / SURE)
+            st.caption(f"Cevaplayan: {len(oylar)} kişi")
+            return
 
-            en_cok = max(sayim, key=sayim.get)
-            st.markdown(
-                f'<div class="sonuc">👉 {en_cok}<br>'
-                f'<span style="font-size:1rem;font-weight:500">en çok oyu alan isim '
-                f'({sayim[en_cok]}/{toplam})</span></div>',
-                unsafe_allow_html=True,
-            )
-            if b["dogru"]:
-                st.caption(f"Gerçek cevap: **{b['dogru']}**")
-        else:
-            if st.button("Oyları göster", key=f"ac{i}"):
-                VERI["acilan"].add(i)
-                st.rerun()
+        if not oylar:
+            st.warning("Kimse cevaplamadı 😅")
+            return
 
-        st.divider()
+        sayim = {}
+        for o in oylar:
+            sayim[o] = sayim.get(o, 0) + 1
+        en_yuksek = max(sayim.values())
+        kazananlar = [ad for ad, s in sayim.items() if s == en_yuksek]
 
-    # Doğru cevaplar girildiyse sıralama tablosu
-    if all(b["dogru"] for b in BILGILER) and len(VERI["acilan"]) == len(BILGILER):
-        puanlar = {
-            ad: sum(1 for i, b in enumerate(BILGILER) if c[i] == b["dogru"])
-            for ad, c in VERI["cevaplar"].items()
-        }
-        st.subheader("🏆 Sıralama")
-        for ad, p in sorted(puanlar.items(), key=lambda x: -x[1]):
-            st.write(f"{ad} — {p}/{len(BILGILER)}")
-        st.balloons()
+        st.markdown(
+            f'<div class="kazanan">🏆 {" & ".join(kazananlar)} 🎉<br>'
+            f'<span style="font-size:1.1rem;font-weight:500">'
+            f"en çok seçilen isim — {en_yuksek}/{len(oylar)} oy</span></div>",
+            unsafe_allow_html=True,
+        )
 
-    if st.button("Oyunu sıfırla"):
-        VERI["cevaplar"].clear()
-        VERI["acilan"].clear()
-        st.rerun()
+        if i not in V["bitenler"]:
+            V["bitenler"].add(i)
+            st.balloons()
+
+        st.write("")
+        for ad, s in sorted(sayim.items(), key=lambda x: -x[1]):
+            st.progress(s / len(oylar), text=f"{ad} — {s} oy")
+
+    sunum()
